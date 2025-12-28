@@ -13,8 +13,17 @@ export enum TaskStatus {
   CANCELLED = 'Отменена'
 }
 
+export interface TaskComment {
+  id: number;
+  authorName: string;
+  text: string;
+  timestamp: string;
+}
+
 export interface Employee {
   id: number;
+  telegramId?: number;
+  telegramUrl?: string;
   fullName: string;
   role: string;
   email: string;
@@ -29,6 +38,8 @@ export interface Employee {
 export interface Task {
   id: number;
   title: string;
+  organizationName: string;
+  solutionContext: string;
   description: string;
   status: TaskStatus;
   priority: 1 | 2 | 3 | 4 | 5;
@@ -39,12 +50,5 @@ export interface Task {
   weightHours: number;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface TaskChangeLog {
-  timestamp: string;
-  user: string;
-  field: string;
-  oldValue: any;
-  newValue: any;
+  comments: TaskComment[];
 }

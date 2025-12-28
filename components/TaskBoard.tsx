@@ -1,12 +1,15 @@
+
 import React, { useState, useMemo } from 'react';
-import { Calendar, Clock, ChevronRight, Hash, Layers } from 'lucide-react';
+import { Calendar, ChevronRight, Hash, Layers, Trash2, Building2 } from 'lucide-react';
 import { Task, TaskStatus } from '../types';
 
 interface TaskBoardProps {
   tasks: Task[];
+  onDelete: (id: number) => void;
+  onTaskClick: (task: Task) => void;
 }
 
-const TaskBoard: React.FC<TaskBoardProps> = ({ tasks }) => {
+const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onDelete, onTaskClick }) => {
   const [activeTab, setActiveTab] = useState<TaskStatus>(TaskStatus.IN_PROGRESS);
 
   const filteredTasks = useMemo(() => {
@@ -21,7 +24,6 @@ const TaskBoard: React.FC<TaskBoardProps> = ({ tasks }) => {
 
   return (
     <div className="space-y-6 pt-2">
-      {/* Tabs */}
       <div className="flex bg-slate-200/50 p-1 rounded-2xl gap-1">
         {[TaskStatus.NEW, TaskStatus.IN_PROGRESS, TaskStatus.DONE].map((status) => (
           <button
@@ -38,15 +40,15 @@ const TaskBoard: React.FC<TaskBoardProps> = ({ tasks }) => {
         ))}
       </div>
 
-      {/* Task List */}
       <div className="space-y-4">
         {filteredTasks.length > 0 ? (
           filteredTasks.map(task => (
             <div 
               key={task.id} 
-              className="group bg-white p-5 rounded-[28px] border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgba(79,70,229,0.1)] transition-all duration-300 active:scale-[0.97]"
+              onClick={() => onTaskClick(task)}
+              className="group bg-white p-5 rounded-[28px] border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgba(79,70,229,0.1)] transition-all duration-300 active:scale-[0.97] cursor-pointer"
             >
-              <div className="flex justify-between items-start mb-4">
+              <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-indigo-100">
                     <Hash size={10} strokeWidth={3} /> {task.id}
@@ -55,36 +57,45 @@ const TaskBoard: React.FC<TaskBoardProps> = ({ tasks }) => {
                     P{task.priority}
                   </span>
                 </div>
-                <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                  <ChevronRight size={18} />
+                <div className="flex items-center gap-1">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
+                    className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 hover:bg-rose-50 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                  <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                    <ChevronRight size={18} />
+                  </div>
                 </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 text-indigo-500 mb-2">
+                <Building2 size={12} strokeWidth={3} />
+                <span className="text-[10px] font-black uppercase tracking-wider truncate max-w-[200px]">{task.organizationName}</span>
               </div>
 
               <h3 className="text-[17px] font-extrabold text-slate-900 leading-tight mb-2 group-hover:text-indigo-600 transition-colors">
                 {task.title}
               </h3>
-              <p className="text-sm text-slate-500 line-clamp-2 font-medium mb-5 leading-relaxed">
-                {task.description}
-              </p>
+              
+              {task.solutionContext && (
+                <p className="text-xs text-slate-400 line-clamp-1 font-medium mb-4 italic">
+                  "{task.solutionContext}"
+                </p>
+              )}
 
               <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                <div className="flex -space-x-2">
-                  <div className="w-8 h-8 rounded-full bg-indigo-500 border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm">AO</div>
-                  <div className="w-8 h-8 rounded-full bg-rose-500 border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm">IV</div>
+                <div className="flex items-center gap-1.5 text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100/50">
+                  <Calendar size={13} className="text-indigo-500" />
+                  <span className="text-[11px] font-bold">{task.deadline}</span>
                 </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 text-slate-400 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100/50">
-                    <Calendar size={13} className="text-indigo-500" />
-                    <span className="text-[11px] font-bold">{task.deadline}</span>
+                
+                {task.comments.length > 0 && (
+                  <div className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                    {task.comments.length} комм.
                   </div>
-                  {task.weightHours > 0 && (
-                    <div className="flex items-center gap-1.5 text-slate-400 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100/50">
-                      <Clock size={13} className="text-amber-500" />
-                      <span className="text-[11px] font-bold">{task.weightHours}ч</span>
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
             </div>
           ))
@@ -93,10 +104,7 @@ const TaskBoard: React.FC<TaskBoardProps> = ({ tasks }) => {
             <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-slate-300">
               <Layers size={32} />
             </div>
-            <div>
-              <p className="text-slate-800 font-bold">Задач не найдено</p>
-              <p className="text-slate-400 text-xs font-medium">В этой категории пока пусто</p>
-            </div>
+            <p className="text-slate-400 font-bold text-sm">В этой категории пока пусто</p>
           </div>
         )}
       </div>
