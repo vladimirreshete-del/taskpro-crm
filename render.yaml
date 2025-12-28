@@ -1,11 +1,11 @@
 
 services:
-  # Бэкенд на Django
+  # Бэкенд: Django + DRF
   - type: web
     name: crm-backend
     env: python
     buildCommand: "pip install -r requirements.txt && python manage.py migrate && python manage.py collectstatic --noinput"
-    startCommand: "gunicorn myproject.wsgi:application"
+    startCommand: "gunicorn core.wsgi:application" # Убедитесь, что папка с wsgi.py называется 'core' или измените здесь
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -18,18 +18,17 @@ services:
       - key: ALLOWED_HOSTS
         value: "*"
 
-  # Фронтенд на React (Static Site)
-  # В спецификации Render Blueprints для статических сайтов используется type: web + env: static
-  - type: web
+  # Фронтенд: React (Static Site)
+  # В Blueprints Render тип для статических сайтов - именно 'static'
+  - type: static
     name: crm-frontend
-    env: static
     buildCommand: "npm install && npm run build"
     publishPath: "./dist"
     envVars:
       - key: VITE_API_URL
-        value: https://crm-backend.onrender.com/api/v1
+        value: https://crm-backend.onrender.com # URL вашего бэкенда
 
 databases:
   - name: crm-db
-    databaseName: crm_prod
-    user: crm_admin
+    databaseName: taskpro_db
+    user: taskpro_admin

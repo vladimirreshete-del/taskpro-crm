@@ -8,6 +8,21 @@ import TaskCreator from './components/TaskCreator';
 import EmployeeEditor from './components/EmployeeEditor';
 import { Task, TaskStatus, Employee, AccessLevel } from './types';
 
+// Безопасный доступ к переменным окружения Vite
+const getApiBaseUrl = () => {
+  try {
+    // Проверка существования import.meta и import.meta.env
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      return import.meta.env.VITE_API_URL || '';
+    }
+  } catch (e) {
+    console.warn('Environment variables are not accessible');
+  }
+  return '';
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
 const INITIAL_EMPLOYEES: Employee[] = [
   {
     id: 1,
@@ -49,20 +64,6 @@ const INITIAL_TASKS: Task[] = [
     weightHours: 12,
     createdAt: '15.05',
     updatedAt: '16.05'
-  },
-  {
-    id: 1045,
-    title: 'Верстка дашборда аналитики',
-    description: 'Создание адаптивных графиков и виджетов для главного экрана CRM.',
-    status: TaskStatus.NEW,
-    priority: 3,
-    deadline: '28 Мая',
-    creatorId: 2,
-    assigneeId: 1,
-    tags: ['Frontend', 'UI'],
-    weightHours: 8,
-    createdAt: '18.05',
-    updatedAt: '18.05'
   }
 ];
 
@@ -78,19 +79,36 @@ const App: React.FC = () => {
 
   const tg = useMemo(() => (window as any).Telegram?.WebApp, []);
 
+  // Функция для загрузки данных (Бэкенд -> Локальное хранилище)
+  const fetchData = async () => {
+    try {
+      if (API_BASE_URL) {
+        const [tasksRes, empsRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/tasks/`),
+          fetch(`${API_BASE_URL}/employees/`)
+        ]);
+        if (tasksRes.ok && empsRes.ok) {
+          setTasks(await tasksRes.json());
+          setEmployees(await empsRes.json());
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Backend connection failed or URL not set, using local storage', e);
+    }
+
+    const savedTasks = localStorage.getItem('crm_tasks_v2');
+    const savedEmployees = localStorage.getItem('crm_employees_v2');
+    setTasks(savedTasks ? JSON.parse(savedTasks) : INITIAL_TASKS);
+    setEmployees(savedEmployees ? JSON.parse(savedEmployees) : INITIAL_EMPLOYEES);
+  };
+
   useEffect(() => {
     if (tg) {
       tg.ready();
       tg.expand();
     }
-
-    const savedTasks = localStorage.getItem('crm_tasks_v2');
-    const savedEmployees = localStorage.getItem('crm_employees_v2');
-
-    setTasks(savedTasks ? JSON.parse(savedTasks) : INITIAL_TASKS);
-    setEmployees(savedEmployees ? JSON.parse(savedEmployees) : INITIAL_EMPLOYEES);
-
-    setTimeout(() => setLoading(false), 800);
+    fetchData().finally(() => setLoading(false));
   }, [tg]);
 
   useEffect(() => {
@@ -105,13 +123,13 @@ const App: React.FC = () => {
     tg?.HapticFeedback?.selectionChanged();
   };
 
-  const addTask = (newTaskData: Partial<Task>) => {
+  const addTask = async (newTaskData: Partial<Task>) => {
     const newTask: Task = {
       id: Math.floor(Math.random() * 9000) + 1000,
       title: newTaskData.title || 'Без названия',
       description: newTaskData.description || 'Описание отсутствует',
       status: TaskStatus.NEW,
-      priority: newTaskData.priority || 3,
+      priority: (newTaskData.priority as any) || 3,
       deadline: newTaskData.deadline || 'Без срока',
       creatorId: 1,
       assigneeId: newTaskData.assigneeId || 1,
@@ -122,18 +140,28 @@ const App: React.FC = () => {
     };
 
     setTasks([newTask, ...tasks]);
+
+    if (API_BASE_URL) {
+      try {
+        await fetch(`${API_BASE_URL}/tasks/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newTask)
+        });
+      } catch (e) { console.error('Failed to sync with backend', e); }
+    }
+    
     tg?.HapticFeedback?.notificationOccurred('success');
   };
 
-  const saveEmployee = (empData: Partial<Employee>) => {
+  const saveEmployee = async (empData: Partial<Employee>) => {
     if (editingEmployee) {
       setEmployees(prev => prev.map(e => e.id === editingEmployee.id ? { ...e, ...empData } : e));
-      tg?.HapticFeedback?.notificationOccurred('success');
     } else {
       const newEmp: Employee = {
         id: Date.now(),
         fullName: empData.fullName || 'Новый сотрудник',
-        role: empData.role || 'Должность не указана',
+        role: empData.role || 'Сотрудник',
         email: empData.email || '',
         phone: empData.phone || '',
         hireDate: new Date().toISOString().split('T')[0],
@@ -143,10 +171,10 @@ const App: React.FC = () => {
         loadPercentage: 0
       };
       setEmployees(prev => [...prev, newEmp]);
-      tg?.HapticFeedback?.notificationOccurred('success');
     }
     setIsEmployeeModalOpen(false);
     setEditingEmployee(null);
+    tg?.HapticFeedback?.notificationOccurred('success');
   };
 
   const openEmployeeEditor = (emp?: Employee) => {
@@ -184,7 +212,7 @@ const App: React.FC = () => {
           {loading ? (
             <div className="flex flex-col items-center justify-center py-32 space-y-4">
               <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Загрузка данных...</p>
+              <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Загрузка системы...</p>
             </div>
           ) : (
             <>
