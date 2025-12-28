@@ -1,13 +1,15 @@
 
 import React from 'react';
-import { User2, Mail, Phone, Zap, ExternalLink } from 'lucide-react';
+import { User2, Mail, Phone, Zap, ExternalLink, Edit2, Plus } from 'lucide-react';
 import { Employee } from '../types';
 
 interface EmployeeManagerProps {
   employees: Employee[];
+  onEdit: (employee: Employee) => void;
+  onAdd: () => void;
 }
 
-const EmployeeManager: React.FC<EmployeeManagerProps> = ({ employees }) => {
+const EmployeeManager: React.FC<EmployeeManagerProps> = ({ employees, onEdit, onAdd }) => {
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between px-1">
@@ -15,7 +17,11 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({ employees }) => {
           <h2 className="text-2xl font-black text-slate-900">Команда</h2>
           <p className="text-sm text-slate-400 font-medium">Активных участников: {employees.length}</p>
         </div>
-        <button className="text-indigo-600 font-bold text-xs bg-indigo-50 px-4 py-2.5 rounded-xl border border-indigo-100 hover:bg-indigo-100 transition-colors">
+        <button 
+          onClick={onAdd}
+          className="flex items-center gap-2 text-indigo-600 font-bold text-xs bg-indigo-50 px-4 py-2.5 rounded-xl border border-indigo-100 hover:bg-indigo-100 transition-colors shadow-sm active:scale-95"
+        >
+          <Plus size={14} strokeWidth={3} />
           Пригласить
         </button>
       </div>
@@ -33,19 +39,29 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({ employees }) => {
                 }`}>
                   {emp.fullName.split(' ').map(n => n[0]).join('')}
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 border-4 border-white rounded-full"></div>
+                {emp.isActive && <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 border-4 border-white rounded-full"></div>}
               </div>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between">
                   <h4 className="font-bold text-lg text-slate-800 truncate">{emp.fullName}</h4>
-                  <button className="text-slate-300 hover:text-indigo-500">
-                    <ExternalLink size={14} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => onEdit(emp)}
+                      className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                      title="Редактировать"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                    <button className="p-2 text-slate-300 hover:text-indigo-500 transition-colors">
+                      <ExternalLink size={14} />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 text-slate-400 mb-4">
                   <Zap size={12} className="text-indigo-500 fill-indigo-500" />
                   <span className="text-[10px] font-black uppercase tracking-wider">{emp.role}</span>
+                  <span className="text-[8px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-bold uppercase">{emp.accessLevel}</span>
                 </div>
                 
                 <div className="space-y-4">
@@ -68,6 +84,9 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({ employees }) => {
                         {skill}
                       </span>
                     ))}
+                    {emp.skills.length === 0 && (
+                      <span className="text-[9px] font-medium text-slate-300 italic">Навыки не указаны</span>
+                    )}
                   </div>
                 </div>
               </div>

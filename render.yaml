@@ -1,0 +1,34 @@
+
+services:
+  # Бэкенд на Django
+  - type: web
+    name: crm-backend
+    env: python
+    buildCommand: "pip install -r requirements.txt && python manage.py migrate && python manage.py collectstatic --noinput"
+    startCommand: "gunicorn myproject.wsgi:application"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: crm-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "*"
+
+  # Фронтенд на React (Static Site)
+  - type: static
+    name: crm-frontend
+    env: static
+    buildCommand: "npm install && npm run build"
+    publishPath: "./dist"
+    envVars:
+      - key: VITE_API_URL
+        value: https://crm-backend.onrender.com/api/v1 # Замените на ваш реальный URL после первого деплоя
+
+databases:
+  - name: crm-db
+    databaseName: crm_prod
+    user: crm_admin

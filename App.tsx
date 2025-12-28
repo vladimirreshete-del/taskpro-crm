@@ -5,6 +5,7 @@ import TaskBoard from './components/TaskBoard';
 import EmployeeManager from './components/EmployeeManager';
 import Dashboard from './components/Dashboard';
 import TaskCreator from './components/TaskCreator';
+import EmployeeEditor from './components/EmployeeEditor';
 import { Task, TaskStatus, Employee, AccessLevel } from './types';
 
 const INITIAL_EMPLOYEES: Employee[] = [
@@ -68,13 +69,15 @@ const INITIAL_TASKS: Task[] = [
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'tasks' | 'employees' | 'dashboard'>('tasks');
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
 
   const tg = useMemo(() => (window as any).Telegram?.WebApp, []);
 
-  // Загрузка данных из localStorage (Имитация БД)
   useEffect(() => {
     if (tg) {
       tg.ready();
@@ -84,23 +87,12 @@ const App: React.FC = () => {
     const savedTasks = localStorage.getItem('crm_tasks_v2');
     const savedEmployees = localStorage.getItem('crm_employees_v2');
 
-    if (savedTasks) {
-      setTasks(JSON.parse(savedTasks));
-    } else {
-      setTasks(INITIAL_TASKS);
-    }
+    setTasks(savedTasks ? JSON.parse(savedTasks) : INITIAL_TASKS);
+    setEmployees(savedEmployees ? JSON.parse(savedEmployees) : INITIAL_EMPLOYEES);
 
-    if (savedEmployees) {
-      setEmployees(JSON.parse(savedEmployees));
-    } else {
-      setEmployees(INITIAL_EMPLOYEES);
-    }
-
-    // Имитация загрузки
     setTimeout(() => setLoading(false), 800);
   }, [tg]);
 
-  // Сохранение при изменениях
   useEffect(() => {
     if (!loading) {
       localStorage.setItem('crm_tasks_v2', JSON.stringify(tasks));
@@ -122,7 +114,7 @@ const App: React.FC = () => {
       priority: newTaskData.priority || 3,
       deadline: newTaskData.deadline || 'Без срока',
       creatorId: 1,
-      assigneeId: 1,
+      assigneeId: newTaskData.assigneeId || 1,
       tags: ['Новая'],
       weightHours: newTaskData.weightHours || 4,
       createdAt: new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
@@ -131,16 +123,39 @@ const App: React.FC = () => {
 
     setTasks([newTask, ...tasks]);
     tg?.HapticFeedback?.notificationOccurred('success');
-    
-    // Обновляем нагрузку сотрудника (имитация)
-    setEmployees(prev => prev.map(emp => 
-      emp.id === 1 ? { ...emp, loadPercentage: Math.min(100, emp.loadPercentage + 5) } : emp
-    ));
+  };
+
+  const saveEmployee = (empData: Partial<Employee>) => {
+    if (editingEmployee) {
+      setEmployees(prev => prev.map(e => e.id === editingEmployee.id ? { ...e, ...empData } : e));
+      tg?.HapticFeedback?.notificationOccurred('success');
+    } else {
+      const newEmp: Employee = {
+        id: Date.now(),
+        fullName: empData.fullName || 'Новый сотрудник',
+        role: empData.role || 'Должность не указана',
+        email: empData.email || '',
+        phone: empData.phone || '',
+        hireDate: new Date().toISOString().split('T')[0],
+        isActive: true,
+        accessLevel: empData.accessLevel || AccessLevel.EXECUTOR,
+        skills: empData.skills || [],
+        loadPercentage: 0
+      };
+      setEmployees(prev => [...prev, newEmp]);
+      tg?.HapticFeedback?.notificationOccurred('success');
+    }
+    setIsEmployeeModalOpen(false);
+    setEditingEmployee(null);
+  };
+
+  const openEmployeeEditor = (emp?: Employee) => {
+    setEditingEmployee(emp || null);
+    setIsEmployeeModalOpen(true);
   };
 
   return (
     <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-[#f8fafc]">
-      {/* Header */}
       <header className="sticky top-0 z-30 px-6 pt-10 pb-4 flex items-center justify-between bg-white/80 backdrop-blur-md border-b border-slate-100">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
@@ -164,7 +179,6 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-y-auto px-6 pb-32 no-scrollbar scroll-smooth">
         <div className="animate-fade-up py-4">
           {loading ? (
@@ -175,14 +189,19 @@ const App: React.FC = () => {
           ) : (
             <>
               {activeTab === 'tasks' && <TaskBoard tasks={tasks} />}
-              {activeTab === 'employees' && <EmployeeManager employees={employees} />}
+              {activeTab === 'employees' && (
+                <EmployeeManager 
+                  employees={employees} 
+                  onEdit={openEmployeeEditor} 
+                  onAdd={() => openEmployeeEditor()} 
+                />
+              )}
               {activeTab === 'dashboard' && <Dashboard tasks={tasks} employees={employees} />}
             </>
           )}
         </div>
       </main>
 
-      {/* Floating Action Button */}
       {activeTab === 'tasks' && !isTaskModalOpen && (
         <button 
           onClick={() => setIsTaskModalOpen(true)}
@@ -192,7 +211,6 @@ const App: React.FC = () => {
         </button>
       )}
 
-      {/* Bottom Navigation */}
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-50">
         <nav className="bg-white/90 backdrop-blur-2xl rounded-[32px] border border-white/40 shadow-[0_20px_50px_rgba(0,0,0,0.15)] p-2 flex justify-between items-center">
           <button 
@@ -227,11 +245,21 @@ const App: React.FC = () => {
         </nav>
       </div>
 
-      {/* Modals */}
       {isTaskModalOpen && (
         <TaskCreator 
           onClose={() => setIsTaskModalOpen(false)} 
           onSave={addTask}
+        />
+      )}
+
+      {isEmployeeModalOpen && (
+        <EmployeeEditor
+          employee={editingEmployee}
+          onClose={() => {
+            setIsEmployeeModalOpen(false);
+            setEditingEmployee(null);
+          }}
+          onSave={saveEmployee}
         />
       )}
     </div>
