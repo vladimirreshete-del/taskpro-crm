@@ -19,14 +19,15 @@ services:
         value: "*"
 
   # Фронтенд на React (Static Site)
-  - type: static
+  # В спецификации Render Blueprints для статических сайтов используется type: web + env: static
+  - type: web
     name: crm-frontend
     env: static
     buildCommand: "npm install && npm run build"
     publishPath: "./dist"
     envVars:
       - key: VITE_API_URL
-        value: https://crm-backend.onrender.com/api/v1 # Замените на ваш реальный URL после первого деплоя
+        value: https://crm-backend.onrender.com/api/v1
 
 databases:
   - name: crm-db
