@@ -9,7 +9,8 @@ import TaskDetails from './components/TaskDetails';
 import { Task, TaskStatus, Employee, AccessLevel } from './types';
 
 // Конфигурация API
-const API_URL = (window as any).VITE_API_URL || 'http://localhost:8000/api/v1';
+// Безопасное получение переменной окружения
+const API_URL = (import.meta.env && import.meta.env.VITE_API_URL) || 'http://localhost:8000/api/v1';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'tasks' | 'employees' | 'dashboard'>('tasks');
@@ -46,6 +47,7 @@ const App: React.FC = () => {
 
     setIsSyncing(true);
     try {
+      // Добавляем слеш в конце URL, если его нет в API_URL, но обычно API_URL без слеша
       const response = await fetch(`${API_URL}/sync/?team_id=${activeTeamId}`, {
         method: 'GET',
         mode: 'cors',
@@ -224,10 +226,13 @@ const App: React.FC = () => {
   };
 
   const visibleTasks = useMemo(() => {
-    // Показываем все задачи, но фильтруем, если выбран конкретный сотрудник
     if (filterEmployeeId) return tasks.filter(t => t.assigneeId === filterEmployeeId);
     return tasks;
   }, [tasks, filterEmployeeId]);
+
+  // Определяем права доступа: если профиль есть и роль Админ, ИЛИ если это единственный пользователь (создатель/демо)
+  const isAdmin = currentUserProfile?.accessLevel === AccessLevel.ADMIN || employees.length <= 1;
+  const canCreateTask = !!currentUserProfile;
 
   if (!isRegistered && !loading) {
     return (
@@ -291,13 +296,8 @@ const App: React.FC = () => {
     );
   }
 
-  // Определяем права доступа: если профиль есть и роль Админ, ИЛИ если это единственный пользователь (создатель/демо)
-  const isAdmin = currentUserProfile?.accessLevel === AccessLevel.ADMIN || employees.length <= 1;
-  const canCreateTask = !!currentUserProfile; // Любой авторизованный пользователь может создавать задачи
-
   return (
     <div className="min-h-screen bg-slate-50 pb-24 font-sans text-slate-900 relative">
-      {/* Header */}
       <div className="sticky top-0 z-40 bg-slate-50/80 backdrop-blur-md px-6 py-4 flex items-center justify-between border-b border-slate-200/50">
         <div className="flex items-center gap-3">
            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-md">
@@ -322,7 +322,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Main Content */}
       <div className="p-6">
         {activeTab === 'tasks' && (
           <TaskBoard 
@@ -365,7 +364,6 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* FAB - Кнопка создания задачи доступна всем участникам */}
       {activeTab === 'tasks' && canCreateTask && (
         <button 
           onClick={() => setIsTaskModalOpen(true)}
@@ -375,7 +373,6 @@ const App: React.FC = () => {
         </button>
       )}
 
-      {/* Bottom Nav */}
       <div className="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-xl p-2 rounded-[24px] shadow-2xl border border-slate-200/50 flex justify-between items-center z-40">
          <button onClick={() => handleTabChange('tasks')} className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-2xl transition-all ${activeTab === 'tasks' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
            <LayoutGrid size={22} strokeWidth={activeTab === 'tasks' ? 3 : 2} />
@@ -391,7 +388,6 @@ const App: React.FC = () => {
          </button>
       </div>
 
-      {/* Modals */}
       {isTaskModalOpen && (
         <TaskCreator 
           employees={employees} 
