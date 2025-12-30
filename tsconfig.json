@@ -21,5 +21,6 @@
       "*": ["*"]
     }
   },
-  "include": ["./**/*.ts", "./**/*.tsx"]
+  "include": ["./*.ts", "./*.tsx", "./components/**/*.ts", "./components/**/*.tsx"],
+  "exclude": ["node_modules", "dist"]
 }

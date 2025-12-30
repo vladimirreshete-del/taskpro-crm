@@ -1,0 +1,8 @@
+{
+  "name": "SBIS-Style CRM Task Manager",
+  "description": "Минималистичная CRM для управления задачами в стиле СБИС: доски задач, управление сотрудниками, аналитика и умное назначение.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
