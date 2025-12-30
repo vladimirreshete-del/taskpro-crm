@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { LayoutGrid, Users, BarChart3, Plus, Zap, CheckCircle2, Shield, User as UserIcon, ArrowRight, Link as LinkIcon, Globe, RefreshCw, AlertCircle } from 'lucide-react';
+import { LayoutGrid, Users, BarChart3, Plus, Zap, Link as LinkIcon, RefreshCw, AlertCircle } from 'lucide-react';
 import TaskBoard from './components/TaskBoard';
 import EmployeeManager from './components/EmployeeManager';
 import Dashboard from './components/Dashboard';
@@ -19,10 +19,12 @@ const getApiUrl = () => {
   } catch (e) {
     console.warn('Environment variable read error');
   }
-  return 'http://localhost:8000/api/v1';
+  // Используем 127.0.0.1 вместо localhost для надежности
+  return 'http://127.0.0.1:8000/api/v1';
 };
 
 const API_URL = getApiUrl();
+console.log('API Endpoint:', API_URL);
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'tasks' | 'employees' | 'dashboard'>('tasks');
@@ -76,7 +78,7 @@ const App: React.FC = () => {
       setApiError(null);
     } catch (error) {
       console.error("Fetch error:", error);
-      setApiError("Ошибка соединения с сервером.");
+      setApiError("Не удалось связаться с сервером.");
     } finally {
       setIsSyncing(false);
       setLoading(false);
@@ -109,7 +111,7 @@ const App: React.FC = () => {
       setApiError(null);
     } catch (error) {
       console.error("Push error:", error);
-      setApiError("Ошибка сохранения. Проверьте интернет.");
+      setApiError("Ошибка сохранения. Данные не отправлены.");
     }
   }, [teamId]);
 
@@ -131,7 +133,7 @@ const App: React.FC = () => {
 
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible' && isRegistered) syncData();
-    }, 30000); // Реже, чтобы не спамить
+    }, 30000); 
     return () => clearInterval(interval);
   }, [syncData, isRegistered]);
 
@@ -194,7 +196,6 @@ const App: React.FC = () => {
       };
 
       const updatedEmps = [...(data.employees || [])];
-      // Добавляем только если такого ID еще нет
       if (!updatedEmps.find(e => e.id === currentUserId)) {
         updatedEmps.push(executor);
       }
