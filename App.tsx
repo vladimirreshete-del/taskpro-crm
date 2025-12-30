@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { LayoutGrid, Users, BarChart3, Plus, Zap, CheckCircle2, Shield, User as UserIcon, ArrowRight, Link as LinkIcon, Globe, RefreshCw } from 'lucide-react';
+import { LayoutGrid, Users, BarChart3, Plus, Zap, CheckCircle2, Shield, User as UserIcon, ArrowRight, Link as LinkIcon, Globe, RefreshCw, AlertCircle } from 'lucide-react';
 import TaskBoard from './components/TaskBoard';
 import EmployeeManager from './components/EmployeeManager';
 import Dashboard from './components/Dashboard';
@@ -10,7 +9,7 @@ import TaskDetails from './components/TaskDetails';
 import { Task, TaskStatus, Employee, AccessLevel } from './types';
 
 // Конфигурация API
-const API_URL = (window as any).VITE_API_URL || 'https://crm-backend.onrender.com/api/v1';
+const API_URL = (window as any).VITE_API_URL || 'http://localhost:8000/api/v1';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'tasks' | 'employees' | 'dashboard'>('tasks');
@@ -21,6 +20,7 @@ const App: React.FC = () => {
   const [filterEmployeeId, setFilterEmployeeId] = useState<number | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
   
   const [isRegistered, setIsRegistered] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState<'choice' | 'invite_input'>('choice');
@@ -46,14 +46,24 @@ const App: React.FC = () => {
 
     setIsSyncing(true);
     try {
-      const response = await fetch(`${API_URL}/sync/?team_id=${activeTeamId}`);
-      if (response.ok) {
-        const data = await response.json();
-        setTasks(data.tasks || []);
-        setEmployees(data.employees || []);
-      }
+      const response = await fetch(`${API_URL}/sync/?team_id=${activeTeamId}`, {
+        method: 'GET',
+        mode: 'cors',
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      
+      const data = await response.json();
+      setTasks(data.tasks || []);
+      setEmployees(data.employees || []);
+      setApiError(null);
     } catch (error) {
-      console.error("Sync error:", error);
+      console.error("Fetch error:", error);
+      setApiError("Ошибка соединения. Проверьте статус сервера CRM.");
     } finally {
       setIsSyncing(false);
       setLoading(false);
@@ -63,22 +73,29 @@ const App: React.FC = () => {
   const pushData = useCallback(async (updatedTasks: Task[], updatedEmps: Employee[]) => {
     if (!teamId) return;
     
-    // Сначала обновляем локально для мгновенного отклика
     setTasks(updatedTasks);
     setEmployees(updatedEmps);
 
     try {
-      await fetch(`${API_URL}/sync/`, {
+      const response = await fetch(`${API_URL}/sync/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        mode: 'cors',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: JSON.stringify({
           team_id: teamId,
           tasks: updatedTasks,
           employees: updatedEmps
         })
       });
+      
+      if (!response.ok) throw new Error(`Save failed: ${response.status}`);
+      setApiError(null);
     } catch (error) {
       console.error("Push error:", error);
+      setApiError("Ошибка сохранения. Данные хранятся локально.");
     }
   }, [teamId]);
 
@@ -91,25 +108,18 @@ const App: React.FC = () => {
       if (savedReg === 'true') {
         setIsRegistered(true);
         syncData(savedTeamId);
+      } else {
+        setLoading(false);
       }
     } else {
       setLoading(false);
     }
 
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('invite') === 'executor' && params.get('teamId')) {
-      setInviteLinkInput(window.location.href);
-      setOnboardingStep('invite_input');
-    }
-
-    const interval = setInterval(() => syncData(), 5000); // Опрос каждые 5 сек
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && isRegistered) syncData();
+    }, 15000);
     return () => clearInterval(interval);
-  }, [syncData]);
-
-  const handleTabChange = useCallback((tab: 'tasks' | 'employees' | 'dashboard') => {
-    setActiveTab(tab);
-    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-  }, [tg]);
+  }, [syncData, isRegistered]);
 
   const handleCreateTeam = () => {
     const newTeamId = `team_${currentUserId}_${Math.random().toString(36).substr(2, 4)}`;
@@ -141,7 +151,7 @@ const App: React.FC = () => {
       const extractedTeamId = url.searchParams.get('teamId');
       
       if (!extractedTeamId) {
-        setInviteError('Ссылка не содержит ID команды.');
+        setInviteError('Неверный ID команды в ссылке.');
         return;
       }
 
@@ -149,8 +159,9 @@ const App: React.FC = () => {
       localStorage.setItem('matrix_current_team_id', extractedTeamId);
       localStorage.setItem('matrix_is_registered', 'true');
 
-      // Сначала получаем данные команды
       const response = await fetch(`${API_URL}/sync/?team_id=${extractedTeamId}`);
+      if (!response.ok) throw new Error('Unreachable');
+      
       const data = await response.json();
       
       const executor: Employee = {
@@ -167,17 +178,17 @@ const App: React.FC = () => {
         loadPercentage: 0
       };
 
-      const updatedEmps = [...data.employees];
+      const updatedEmps = [...(data.employees || [])];
       if (!updatedEmps.find(e => e.id === currentUserId)) {
         updatedEmps.push(executor);
       }
 
-      await pushData(data.tasks, updatedEmps);
+      await pushData(data.tasks || [], updatedEmps);
       setIsRegistered(true);
       setShowWelcome(true);
       tg?.HapticFeedback?.notificationOccurred('success');
     } catch (e) {
-      setInviteError('Введите корректную ссылку.');
+      setInviteError('Не удалось подключиться к серверу этой команды.');
     }
   };
 
@@ -206,13 +217,17 @@ const App: React.FC = () => {
     tg?.HapticFeedback?.notificationOccurred('success');
   };
 
+  const handleTabChange = (tab: 'tasks' | 'employees' | 'dashboard') => {
+    setActiveTab(tab);
+    if (tab === 'tasks') setFilterEmployeeId(null);
+    tg?.HapticFeedback?.impactOccurred('light');
+  };
+
   const visibleTasks = useMemo(() => {
-    if (currentUserProfile?.accessLevel === AccessLevel.EXECUTOR) {
-      return tasks.filter(t => t.assigneeId === currentUserId);
-    }
+    // Показываем все задачи, но фильтруем, если выбран конкретный сотрудник
     if (filterEmployeeId) return tasks.filter(t => t.assigneeId === filterEmployeeId);
     return tasks;
-  }, [tasks, currentUserProfile, currentUserId, filterEmployeeId]);
+  }, [tasks, filterEmployeeId]);
 
   if (!isRegistered && !loading) {
     return (
@@ -221,99 +236,219 @@ const App: React.FC = () => {
           <Zap size={50} fill="white" />
         </div>
         {onboardingStep === 'choice' ? (
-          <div className="space-y-8 w-full max-w-sm">
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">1C Matrix</h1>
-            <div className="space-y-4">
-              <button onClick={handleCreateTeam} className="w-full bg-slate-50 p-6 rounded-[32px] border-2 border-transparent hover:border-indigo-600 transition-all flex items-center gap-5 group text-left active:scale-95 shadow-sm">
-                <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all"><Shield size={28} /></div>
-                <div><h3 className="font-black text-slate-800">Администратор</h3><p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Создать команду</p></div>
-                <ArrowRight size={20} className="ml-auto text-slate-200 group-hover:text-indigo-600" />
+          <div className="space-y-6 w-full max-w-sm">
+            <h1 className="text-3xl font-black text-slate-900 leading-tight">Добро пожаловать в Matrix</h1>
+            <p className="text-slate-500 font-medium">Система управления задачами для эффективных команд.</p>
+            <div className="space-y-3 pt-4">
+              <button 
+                onClick={handleCreateTeam}
+                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-200 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <Plus size={20} strokeWidth={3} /> Создать команду
               </button>
-              <button onClick={() => setOnboardingStep('invite_input')} className="w-full bg-slate-50 p-6 rounded-[32px] border-2 border-transparent hover:border-amber-500 transition-all flex items-center gap-5 group text-left active:scale-95 shadow-sm">
-                <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-500 group-hover:bg-amber-500 group-hover:text-white transition-all"><UserIcon size={28} /></div>
-                <div><h3 className="font-black text-slate-800">Исполнитель</h3><p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Вступить в команду</p></div>
-                <ArrowRight size={20} className="ml-auto text-slate-200 group-hover:text-amber-500" />
+              <button 
+                onClick={() => setOnboardingStep('invite_input')}
+                className="w-full py-4 bg-slate-50 text-slate-600 rounded-2xl font-black hover:bg-slate-100 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <LinkIcon size={20} strokeWidth={3} /> Войти по ссылке
               </button>
             </div>
           </div>
         ) : (
-          <div className="space-y-8 w-full max-w-sm animate-fade-up">
-            <button onClick={() => setOnboardingStep('choice')} className="text-slate-400 font-bold text-xs uppercase hover:text-indigo-600 transition-colors">← Назад</button>
-            <div className="space-y-2"><h2 className="text-2xl font-black text-slate-900">Приглашение</h2><p className="text-slate-400 font-bold text-sm">Вставьте ссылку от руководителя</p></div>
-            <div className="space-y-4">
-              <div className="relative"><div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300"><LinkIcon size={18} /></div>
-                <input type="text" value={inviteLinkInput} onChange={(e) => { setInviteLinkInput(e.target.value); setInviteError(''); }} placeholder="https://..." className="w-full bg-slate-50 border-2 border-slate-100 focus:border-indigo-500 px-12 py-5 rounded-[24px] outline-none font-bold text-sm transition-all" />
-              </div>
-              {inviteError && <p className="text-rose-500 text-[10px] font-black uppercase">{inviteError}</p>}
-              <button onClick={handleJoinTeam} disabled={!inviteLinkInput} className={`w-full py-5 rounded-[24px] font-black text-sm transition-all active:scale-95 ${inviteLinkInput ? 'bg-indigo-600 text-white shadow-xl' : 'bg-slate-200 text-slate-400'}`}>Присоединиться</button>
-            </div>
+          <div className="space-y-6 w-full max-w-sm animate-fade-in">
+             <h1 className="text-2xl font-black text-slate-900">Вход по приглашению</h1>
+             <div className="space-y-3">
+               <input 
+                 type="text" 
+                 value={inviteLinkInput}
+                 onChange={(e) => setInviteLinkInput(e.target.value)}
+                 placeholder="Вставьте ссылку-приглашение"
+                 className="w-full bg-slate-50 border-2 border-slate-100 px-5 py-4 rounded-2xl outline-none focus:border-indigo-500 font-bold text-slate-800"
+               />
+               {inviteError && <p className="text-rose-500 text-xs font-black">{inviteError}</p>}
+             </div>
+             <div className="flex gap-3">
+               <button onClick={() => setOnboardingStep('choice')} className="flex-1 py-4 text-slate-400 font-black">Назад</button>
+               <button 
+                 onClick={handleJoinTeam} 
+                 disabled={!inviteLinkInput}
+                 className={`flex-[2] py-4 rounded-2xl font-black text-white shadow-lg transition-all ${inviteLinkInput ? 'bg-indigo-600' : 'bg-slate-300'}`}
+               >
+                 Войти
+               </button>
+             </div>
           </div>
         )}
       </div>
     );
   }
 
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-white">
+        <div className="animate-spin text-indigo-600"><RefreshCw size={32} /></div>
+      </div>
+    );
+  }
+
+  // Определяем права доступа: если профиль есть и роль Админ, ИЛИ если это единственный пользователь (создатель/демо)
+  const isAdmin = currentUserProfile?.accessLevel === AccessLevel.ADMIN || employees.length <= 1;
+  const canCreateTask = !!currentUserProfile; // Любой авторизованный пользователь может создавать задачи
+
   return (
-    <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-[#f8fafc]">
-      {showWelcome && (
-        <div className="fixed top-24 left-6 right-6 z-[200] bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl animate-fade-up flex items-center gap-3">
-          <CheckCircle2 size={24} /><div><p className="font-black text-sm">Вы в команде!</p><p className="text-[10px] font-bold opacity-80">Синхронизация активна</p></div>
-          <button onClick={() => setShowWelcome(false)} className="ml-auto opacity-70"><Plus className="rotate-45" size={20} /></button>
-        </div>
-      )}
-
-      <header className="sticky top-0 z-30 px-6 pt-10 pb-4 flex items-center justify-between bg-white border-b border-slate-100 shadow-sm">
+    <div className="min-h-screen bg-slate-50 pb-24 font-sans text-slate-900 relative">
+      {/* Header */}
+      <div className="sticky top-0 z-40 bg-slate-50/80 backdrop-blur-md px-6 py-4 flex items-center justify-between border-b border-slate-200/50">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg"><Zap size={22} fill="white" /></div>
-          <div><h1 className="text-xl font-extrabold tracking-tight text-slate-900 leading-none">1C Matrix</h1>
-            <div className="flex items-center gap-1.5 mt-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-              {isSyncing ? <RefreshCw size={10} className="animate-spin text-indigo-500" /> : <Globe size={10} className="text-emerald-500" />}
-              <span>ID: {teamId?.split('_')[1]}</span>
-            </div>
-          </div>
+           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-md">
+             <Zap size={20} fill="white" />
+           </div>
+           <div>
+             <h1 className="text-lg font-black leading-none">Matrix</h1>
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{currentUserProfile?.role || 'Гость'}</p>
+           </div>
         </div>
-        <div className="text-right"><p className="text-[11px] font-black text-slate-800">{currentUserProfile?.fullName || 'User'}</p>
-          <p className={`text-[9px] font-bold uppercase ${currentUserProfile?.accessLevel === AccessLevel.ADMIN ? 'text-indigo-600' : 'text-amber-500'}`}>{currentUserProfile?.accessLevel}</p>
+        <div className="flex items-center gap-2">
+           {isSyncing && <RefreshCw size={14} className="text-slate-400 animate-spin" />}
+           <div className="w-9 h-9 bg-slate-200 rounded-full flex items-center justify-center text-slate-500 font-black text-xs border-2 border-white shadow-sm">
+             {currentUserProfile?.fullName[0] || '?'}
+           </div>
         </div>
-      </header>
-
-      <main className="flex-1 overflow-y-auto px-6 pb-32 no-scrollbar">
-        <div className="animate-fade-up py-4">
-          {loading ? (
-            <div className="flex justify-center py-20"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div></div>
-          ) : (
-            <>
-              {activeTab === 'tasks' && <TaskBoard tasks={visibleTasks} onDelete={(id) => pushData(tasks.filter(t => t.id !== id), employees)} onTaskClick={setSelectedTask} filterEmployeeName={employees.find(e => e.id === filterEmployeeId)?.fullName} />}
-              {activeTab === 'employees' && <EmployeeManager employees={employees} onEdit={(emp) => { setEditingEmployee(emp); setIsEmployeeModalOpen(true); }} onAdd={() => { setEditingEmployee(null); setIsEmployeeModalOpen(true); }} onDelete={(id) => pushData(tasks, employees.filter(e => e.id !== id))} onViewTasks={(id) => { setFilterEmployeeId(id); setActiveTab('tasks'); }} isAdmin={currentUserProfile?.accessLevel === AccessLevel.ADMIN} teamId={teamId || ''} />}
-              {activeTab === 'dashboard' && <Dashboard tasks={tasks} employees={employees} />}
-            </>
-          )}
+      </div>
+      
+      {apiError && (
+        <div className="mx-6 mt-4 p-3 bg-rose-50 text-rose-600 text-xs font-bold rounded-xl flex items-center gap-2 border border-rose-100">
+           <AlertCircle size={14} /> {apiError}
         </div>
-      </main>
-
-      {activeTab === 'tasks' && currentUserProfile?.accessLevel === AccessLevel.ADMIN && !isTaskModalOpen && (
-        <button onClick={() => setIsTaskModalOpen(true)} className="fixed bottom-28 right-6 w-14 h-14 bg-indigo-600 text-white rounded-2xl shadow-xl flex items-center justify-center z-40 active:scale-95"><Plus size={32} /></button>
       )}
 
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-50">
-        <nav className="bg-white/95 backdrop-blur-2xl rounded-[32px] border border-slate-200 shadow-xl p-2 flex justify-between items-center">
-          <button onClick={() => handleTabChange('tasks')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] ${activeTab === 'tasks' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}><LayoutGrid size={22} /><span className="text-[10px] font-bold">Задачи</span></button>
-          <button onClick={() => handleTabChange('employees')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] ${activeTab === 'employees' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}><Users size={22} /><span className="text-[10px] font-bold">Команда</span></button>
-          {currentUserProfile?.accessLevel === AccessLevel.ADMIN && (
-            <button onClick={() => handleTabChange('dashboard')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}><BarChart3 size={22} /><span className="text-[10px] font-bold">Анализ</span></button>
-          )}
-        </nav>
+      {/* Main Content */}
+      <div className="p-6">
+        {activeTab === 'tasks' && (
+          <TaskBoard 
+            tasks={visibleTasks} 
+            onDelete={(id) => {
+              const newTasks = tasks.filter(t => t.id !== id);
+              pushData(newTasks, employees);
+            }}
+            onTaskClick={setSelectedTask}
+            filterEmployeeName={filterEmployeeId ? employees.find(e => e.id === filterEmployeeId)?.fullName : undefined}
+          />
+        )}
+        
+        {activeTab === 'employees' && (
+          <EmployeeManager 
+            employees={employees}
+            onEdit={(emp) => {
+              setEditingEmployee(emp);
+              setIsEmployeeModalOpen(true);
+            }}
+            onAdd={() => {
+              setEditingEmployee(null);
+              setIsEmployeeModalOpen(true);
+            }}
+            onDelete={(id) => {
+              const newEmps = employees.filter(e => e.id !== id);
+              pushData(tasks, newEmps);
+            }}
+            onViewTasks={(id) => {
+               setFilterEmployeeId(id);
+               setActiveTab('tasks');
+            }}
+            isAdmin={isAdmin}
+            teamId={teamId || ''}
+          />
+        )}
+
+        {activeTab === 'dashboard' && (
+          <Dashboard tasks={tasks} employees={employees} />
+        )}
       </div>
 
-      {isTaskModalOpen && <TaskCreator employees={employees} onClose={() => setIsTaskModalOpen(false)} onSave={addTask} />}
-      {isEmployeeModalOpen && <EmployeeEditor employee={editingEmployee} teamId={teamId || ''} onClose={() => { setIsEmployeeModalOpen(false); setEditingEmployee(null); }} onSave={(e) => {
-         let updatedEmps;
-         if (editingEmployee) updatedEmps = employees.map(em => em.id === editingEmployee.id ? { ...em, ...e } as Employee : em);
-         else updatedEmps = [...employees, { ...e, id: Date.now(), isActive: true, loadPercentage: 0 } as Employee];
-         pushData(tasks, updatedEmps);
-         setIsEmployeeModalOpen(false);
-      }} />}
-      {selectedTask && <TaskDetails task={selectedTask} currentUser={currentUserProfile || ({} as any)} onClose={() => setSelectedTask(null)} onUpdate={(ut) => pushData(tasks.map(t => t.id === ut.id ? ut : t), employees)} onDelete={(id) => { pushData(tasks.filter(t => t.id !== id), employees); setSelectedTask(null); }} isAdmin={currentUserProfile?.accessLevel === AccessLevel.ADMIN} />}
+      {/* FAB - Кнопка создания задачи доступна всем участникам */}
+      {activeTab === 'tasks' && canCreateTask && (
+        <button 
+          onClick={() => setIsTaskModalOpen(true)}
+          className="fixed bottom-24 right-6 w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-indigo-600/30 active:scale-90 transition-all z-30"
+        >
+          <Plus size={28} strokeWidth={3} />
+        </button>
+      )}
+
+      {/* Bottom Nav */}
+      <div className="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-xl p-2 rounded-[24px] shadow-2xl border border-slate-200/50 flex justify-between items-center z-40">
+         <button onClick={() => handleTabChange('tasks')} className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-2xl transition-all ${activeTab === 'tasks' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
+           <LayoutGrid size={22} strokeWidth={activeTab === 'tasks' ? 3 : 2} />
+           <span className="text-[9px] font-black uppercase tracking-wide">Задачи</span>
+         </button>
+         <button onClick={() => handleTabChange('employees')} className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-2xl transition-all ${activeTab === 'employees' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
+           <Users size={22} strokeWidth={activeTab === 'employees' ? 3 : 2} />
+           <span className="text-[9px] font-black uppercase tracking-wide">Команда</span>
+         </button>
+         <button onClick={() => handleTabChange('dashboard')} className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-2xl transition-all ${activeTab === 'dashboard' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
+           <BarChart3 size={22} strokeWidth={activeTab === 'dashboard' ? 3 : 2} />
+           <span className="text-[9px] font-black uppercase tracking-wide">Отчет</span>
+         </button>
+      </div>
+
+      {/* Modals */}
+      {isTaskModalOpen && (
+        <TaskCreator 
+          employees={employees} 
+          onClose={() => setIsTaskModalOpen(false)}
+          onSave={addTask}
+        />
+      )}
+
+      {isEmployeeModalOpen && (
+        <EmployeeEditor 
+          employee={editingEmployee}
+          teamId={teamId || ''}
+          onClose={() => setIsEmployeeModalOpen(false)}
+          onSave={(data) => {
+             let newEmps = [...employees];
+             if (editingEmployee) {
+               newEmps = newEmps.map(e => e.id === editingEmployee.id ? { ...e, ...data } : e);
+             } else {
+               const newEmp: Employee = {
+                 id: Date.now(),
+                 fullName: data.fullName || 'Новый сотрудник',
+                 role: data.role || 'Сотрудник',
+                 email: data.email || '',
+                 phone: data.phone || '',
+                 hireDate: new Date().toISOString().split('T')[0],
+                 isActive: true,
+                 accessLevel: data.accessLevel || AccessLevel.EXECUTOR,
+                 skills: [],
+                 loadPercentage: 0,
+                 ...data
+               };
+               newEmps.push(newEmp);
+             }
+             pushData(tasks, newEmps);
+             setIsEmployeeModalOpen(false);
+          }}
+        />
+      )}
+
+      {selectedTask && (
+        <TaskDetails 
+          task={selectedTask}
+          currentUser={currentUserProfile || employees[0]}
+          onClose={() => setSelectedTask(null)}
+          isAdmin={isAdmin}
+          onDelete={(id) => {
+             const newTasks = tasks.filter(t => t.id !== id);
+             pushData(newTasks, employees);
+             setSelectedTask(null);
+          }}
+          onUpdate={(updatedTask) => {
+             const newTasks = tasks.map(t => t.id === updatedTask.id ? updatedTask : t);
+             pushData(newTasks, employees);
+             setSelectedTask(updatedTask);
+          }}
+        />
+      )}
     </div>
   );
 };
