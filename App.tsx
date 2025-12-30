@@ -33,14 +33,44 @@ const App: React.FC = () => {
     employees.find(e => e.telegramId === currentUserId || e.id === currentUserId), 
   [employees, currentUserId]);
 
-  // Handle invitation logic from URL
+  // Logic to register user when joining via invitation link
   useEffect(() => {
+    if (loading) return;
+
     const params = new URLSearchParams(window.location.search);
-    if (params.get('invite') === 'executor' && !loading) {
-      // Logic could be added here to auto-register or flag the user
-      console.log("User joined via invitation link as Executor");
+    const isInvite = params.get('invite') === 'executor';
+
+    if (isInvite && currentTelegramUser) {
+      const alreadyExists = employees.find(e => e.telegramId === currentUserId);
+      
+      if (!alreadyExists) {
+        const newExecutor: Employee = {
+          id: currentUserId,
+          telegramId: currentUserId,
+          fullName: `${currentTelegramUser.first_name} ${currentTelegramUser.last_name || ''}`.trim(),
+          role: 'Исполнитель',
+          email: '',
+          phone: '',
+          hireDate: new Date().toISOString().split('T')[0],
+          isActive: true,
+          accessLevel: AccessLevel.EXECUTOR,
+          skills: [],
+          loadPercentage: 0
+        };
+        
+        const updatedEmps = [...employees, newExecutor];
+        setEmployees(updatedEmps);
+        localStorage.setItem(storageKeyEmps, JSON.stringify(updatedEmps));
+        
+        // Remove invite from URL to prevent infinite loop or re-adding
+        const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+        window.history.pushState({ path: newUrl }, '', newUrl);
+        
+        tg?.HapticFeedback?.notificationOccurred('success');
+        alert("Добро пожаловать в команду 1C Matrix!");
+      }
     }
-  }, [loading]);
+  }, [loading, currentTelegramUser, employees, currentUserId, storageKeyEmps, tg]);
 
   const visibleTasks = useMemo(() => {
     let filtered = tasks;
@@ -56,22 +86,29 @@ const App: React.FC = () => {
     const savedEmps = localStorage.getItem(storageKeyEmps);
     let emps: Employee[] = savedEmps ? JSON.parse(savedEmps) : [];
 
+    // First login logic: Admin creation if not joined via invite
     if (currentTelegramUser && !emps.find(e => e.telegramId === currentUserId)) {
-      const self: Employee = {
-        id: currentUserId,
-        telegramId: currentUserId,
-        fullName: `${currentTelegramUser.first_name} ${currentTelegramUser.last_name || ''}`.trim(),
-        role: 'Администратор',
-        email: '',
-        phone: '',
-        hireDate: new Date().toISOString().split('T')[0],
-        isActive: true,
-        accessLevel: AccessLevel.ADMIN,
-        skills: ['Владелец'],
-        loadPercentage: 0
-      };
-      emps = [self, ...emps];
-      localStorage.setItem(storageKeyEmps, JSON.stringify(emps));
+      const params = new URLSearchParams(window.location.search);
+      const isInvite = params.get('invite') === 'executor';
+
+      // If NOT an invite, the very first user is usually an Admin
+      if (!isInvite) {
+        const self: Employee = {
+          id: currentUserId,
+          telegramId: currentUserId,
+          fullName: `${currentTelegramUser.first_name} ${currentTelegramUser.last_name || ''}`.trim(),
+          role: 'Администратор',
+          email: '',
+          phone: '',
+          hireDate: new Date().toISOString().split('T')[0],
+          isActive: true,
+          accessLevel: AccessLevel.ADMIN,
+          skills: ['Владелец'],
+          loadPercentage: 0
+        };
+        emps = [self, ...emps];
+        localStorage.setItem(storageKeyEmps, JSON.stringify(emps));
+      }
     }
     
     if (emps.length === 0) {
