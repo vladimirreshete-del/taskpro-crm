@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { LayoutGrid, Users, BarChart3, Bell, Search, Plus, Zap } from 'lucide-react';
+import { LayoutGrid, Users, BarChart3, Bell, Plus, Zap } from 'lucide-react';
 import TaskBoard from './components/TaskBoard';
 import EmployeeManager from './components/EmployeeManager';
 import Dashboard from './components/Dashboard';
@@ -15,55 +15,65 @@ const App: React.FC = () => {
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [filterEmployeeId, setFilterEmployeeId] = useState<number | null>(null);
   
   const [tasks, setTasks] = useState<Task[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
 
   const tg = useMemo(() => (window as any).Telegram?.WebApp, []);
-  // Используем Telegram User ID для изоляции данных. Если зашли не через TG, используем 'local_admin'
   const currentTelegramUser = useMemo(() => tg?.initDataUnsafe?.user, [tg]);
-  const currentUserId = useMemo(() => currentTelegramUser?.id || 999999, [currentTelegramUser]);
+  const currentUserId = useMemo(() => currentTelegramUser?.id || 12345, [currentTelegramUser]);
   
-  const storageKeyTasks = `taskpro_tasks_${currentUserId}`;
-  const storageKeyEmps = `taskpro_emps_${currentUserId}`;
+  const storageKeyTasks = `matrix_tasks_v4_${currentUserId}`;
+  const storageKeyEmps = `matrix_emps_v4_${currentUserId}`;
+  const storageKeyCounter = `matrix_counter_v4_${currentUserId}`;
 
   const currentUserProfile = useMemo(() => 
-    employees.find(e => e.telegramId === currentUserId), 
+    employees.find(e => e.telegramId === currentUserId || e.id === currentUserId), 
   [employees, currentUserId]);
 
-  // Фильтрация видимости: исполнитель видит только СВОИ задачи, админ — все.
-  const visibleTasks = useMemo(() => {
-    if (!currentUserProfile || currentUserProfile.accessLevel === AccessLevel.ADMIN) {
-      return tasks;
+  // Handle invitation logic from URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('invite') === 'executor' && !loading) {
+      // Logic could be added here to auto-register or flag the user
+      console.log("User joined via invitation link as Executor");
     }
-    return tasks.filter(t => t.assigneeId === currentUserProfile.id);
-  }, [tasks, currentUserProfile]);
+  }, [loading]);
+
+  const visibleTasks = useMemo(() => {
+    let filtered = tasks;
+    if (currentUserProfile?.accessLevel === AccessLevel.EXECUTOR) {
+      filtered = tasks.filter(t => t.assigneeId === currentUserProfile.id || t.assigneeId === currentUserId);
+    } else if (filterEmployeeId) {
+      filtered = tasks.filter(t => t.assigneeId === filterEmployeeId);
+    }
+    return filtered;
+  }, [tasks, currentUserProfile, currentUserId, filterEmployeeId]);
 
   const fetchData = () => {
     const savedEmps = localStorage.getItem(storageKeyEmps);
     let emps: Employee[] = savedEmps ? JSON.parse(savedEmps) : [];
 
-    // Авто-создание профиля при первом входе
     if (currentTelegramUser && !emps.find(e => e.telegramId === currentUserId)) {
       const self: Employee = {
         id: currentUserId,
         telegramId: currentUserId,
         fullName: `${currentTelegramUser.first_name} ${currentTelegramUser.last_name || ''}`.trim(),
-        role: 'Администратор системы',
+        role: 'Администратор',
         email: '',
         phone: '',
         hireDate: new Date().toISOString().split('T')[0],
         isActive: true,
         accessLevel: AccessLevel.ADMIN,
-        skills: ['Owner'],
+        skills: ['Владелец'],
         loadPercentage: 0
       };
       emps = [self, ...emps];
       localStorage.setItem(storageKeyEmps, JSON.stringify(emps));
     }
     
-    // Если список сотрудников пуст и мы не в Telegram (для тестов)
     if (emps.length === 0) {
       const demoAdmin: Employee = {
         id: 1,
@@ -100,25 +110,34 @@ const App: React.FC = () => {
       localStorage.setItem(storageKeyTasks, JSON.stringify(tasks));
       localStorage.setItem(storageKeyEmps, JSON.stringify(employees));
     }
-  }, [tasks, employees, loading, currentUserId]);
+  }, [tasks, employees, loading]);
 
   const handleTabChange = (tab: 'tasks' | 'employees' | 'dashboard') => {
     setActiveTab(tab);
+    setFilterEmployeeId(null);
     tg?.HapticFeedback?.selectionChanged();
   };
 
   const addTask = (data: Partial<Task>) => {
+    const currentCounter = parseInt(localStorage.getItem(storageKeyCounter) || '0');
+    const newDisplayId = currentCounter + 1;
+    localStorage.setItem(storageKeyCounter, newDisplayId.toString());
+
+    const assignee = employees.find(e => e.id === data.assigneeId);
+
     const newTask: Task = {
-      id: Math.floor(Math.random() * 90000) + 10000,
+      id: Date.now(),
+      displayId: newDisplayId,
       title: data.title || 'Новая задача',
       organizationName: data.organizationName || 'Не указана',
       solutionContext: data.solutionContext || '',
       description: data.description || '',
       status: TaskStatus.NEW,
-      priority: data.priority || 3,
+      priority: (data.priority as any) || 'Обычная',
       deadline: data.deadline || 'Без срока',
       creatorId: currentUserId,
       assigneeId: data.assigneeId || currentUserId,
+      assigneeName: assignee ? assignee.fullName : 'Не назначен',
       tags: [],
       weightHours: 4,
       createdAt: new Date().toLocaleDateString('ru-RU'),
@@ -135,9 +154,20 @@ const App: React.FC = () => {
   };
 
   const deleteTask = (id: number) => {
-    if (confirm('Вы уверены, что хотите удалить задачу?')) {
+    if (confirm('Удалить задачу?')) {
       setTasks(prev => prev.filter(t => t.id !== id));
       setSelectedTask(null);
+      tg?.HapticFeedback?.notificationOccurred('warning');
+    }
+  };
+
+  const deleteEmployee = (id: number) => {
+    if (id === currentUserId) {
+      alert("Нельзя удалить себя");
+      return;
+    }
+    if (confirm('Удалить сотрудника?')) {
+      setEmployees(prev => prev.filter(e => e.id !== id));
       tg?.HapticFeedback?.notificationOccurred('warning');
     }
   };
@@ -146,7 +176,7 @@ const App: React.FC = () => {
     if (editingEmployee) {
       setEmployees(prev => prev.map(e => e.id === editingEmployee.id ? { ...e, ...empData } as Employee : e));
     } else {
-      setEmployees(prev => [...prev, { ...empData, id: Date.now(), isActive: true, loadPercentage: 0 } as Employee]);
+      setEmployees(prev => [...prev, { ...empData, id: Date.now(), isActive: true, loadPercentage: 0, accessLevel: empData.accessLevel || AccessLevel.EXECUTOR } as Employee]);
     }
     setIsEmployeeModalOpen(false);
     tg?.HapticFeedback?.notificationOccurred('success');
@@ -154,15 +184,15 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-[#f8fafc]">
-      <header className="sticky top-0 z-30 px-6 pt-10 pb-4 flex items-center justify-between bg-white/80 backdrop-blur-md border-b border-slate-100">
+      <header className="sticky top-0 z-30 px-6 pt-10 pb-4 flex items-center justify-between bg-white border-b border-slate-100 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
             <Zap size={22} fill="white" />
           </div>
           <div>
-            <h1 className="text-xl font-extrabold tracking-tight leading-none text-slate-900">TaskPro</h1>
+            <h1 className="text-xl font-extrabold tracking-tight leading-none text-slate-900">1C Matrix</h1>
             <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-1">
-              {currentUserProfile?.fullName || 'Гость'} • {currentUserProfile?.accessLevel || 'Пользователь'}
+              {currentUserProfile?.fullName || 'Гость'} • {currentUserProfile?.accessLevel || 'Исполнитель'}
             </p>
           </div>
         </div>
@@ -178,7 +208,8 @@ const App: React.FC = () => {
                 <TaskBoard 
                   tasks={visibleTasks} 
                   onDelete={deleteTask} 
-                  onTaskClick={setSelectedTask} 
+                  onTaskClick={setSelectedTask}
+                  filterEmployeeName={employees.find(e => e.id === filterEmployeeId)?.fullName}
                 />
               )}
               {activeTab === 'employees' && (
@@ -186,6 +217,9 @@ const App: React.FC = () => {
                   employees={employees} 
                   onEdit={(emp) => { setEditingEmployee(emp); setIsEmployeeModalOpen(true); }} 
                   onAdd={() => { setEditingEmployee(null); setIsEmployeeModalOpen(true); }} 
+                  onDelete={deleteEmployee}
+                  onViewTasks={(id) => { setFilterEmployeeId(id); setActiveTab('tasks'); }}
+                  isAdmin={currentUserProfile?.accessLevel === AccessLevel.ADMIN}
                 />
               )}
               {activeTab === 'dashboard' && <Dashboard tasks={tasks} employees={employees} />}
@@ -194,49 +228,27 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {activeTab === 'tasks' && !isTaskModalOpen && (
-        <button onClick={() => setIsTaskModalOpen(true)} className="fixed bottom-28 right-6 w-14 h-14 bg-indigo-600 text-white rounded-2xl shadow-xl flex items-center justify-center z-40 transition-transform active:scale-90"><Plus size={32} /></button>
+      {activeTab === 'tasks' && currentUserProfile?.accessLevel === AccessLevel.ADMIN && !isTaskModalOpen && (
+        <button onClick={() => setIsTaskModalOpen(true)} className="fixed bottom-28 right-6 w-14 h-14 bg-indigo-600 text-white rounded-2xl shadow-xl flex items-center justify-center z-40 active:scale-95 transition-transform"><Plus size={32} /></button>
       )}
 
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-50">
-        <nav className="bg-white/90 backdrop-blur-2xl rounded-[32px] border border-white/40 shadow-xl p-2 flex justify-between items-center">
-          <button onClick={() => handleTabChange('tasks')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] transition-all ${activeTab === 'tasks' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>
+        <nav className="bg-white/95 backdrop-blur-2xl rounded-[32px] border border-slate-200 shadow-xl p-2 flex justify-between items-center">
+          <button onClick={() => handleTabChange('tasks')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] ${activeTab === 'tasks' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}>
             <LayoutGrid size={22} /><span className="text-[10px] font-bold">Задачи</span>
           </button>
-          <button onClick={() => handleTabChange('employees')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] transition-all ${activeTab === 'employees' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>
+          <button onClick={() => handleTabChange('employees')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] ${activeTab === 'employees' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}>
             <Users size={22} /><span className="text-[10px] font-bold">Команда</span>
           </button>
-          <button onClick={() => handleTabChange('dashboard')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] transition-all ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>
+          <button onClick={() => handleTabChange('dashboard')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}>
             <BarChart3 size={22} /><span className="text-[10px] font-bold">Анализ</span>
           </button>
         </nav>
       </div>
 
-      {isTaskModalOpen && (
-        <TaskCreator 
-          employees={employees}
-          onClose={() => setIsTaskModalOpen(false)} 
-          onSave={addTask} 
-        />
-      )}
-      
-      {selectedTask && (
-        <TaskDetails 
-          task={selectedTask} 
-          currentUser={currentUserProfile || { fullName: 'Аноним' } as any}
-          onClose={() => setSelectedTask(null)} 
-          onUpdate={updateTask}
-          onDelete={deleteTask}
-        />
-      )}
-
-      {isEmployeeModalOpen && (
-        <EmployeeEditor 
-          employee={editingEmployee} 
-          onClose={() => setIsEmployeeModalOpen(false)} 
-          onSave={saveEmployee} 
-        />
-      )}
+      {isTaskModalOpen && <TaskCreator employees={employees} onClose={() => setIsTaskModalOpen(false)} onSave={addTask} />}
+      {isEmployeeModalOpen && <EmployeeEditor employee={editingEmployee} onClose={() => { setIsEmployeeModalOpen(false); setEditingEmployee(null); }} onSave={saveEmployee} />}
+      {selectedTask && <TaskDetails task={selectedTask} currentUser={currentUserProfile || ({} as any)} onClose={() => setSelectedTask(null)} onUpdate={updateTask} onDelete={deleteTask} isAdmin={currentUserProfile?.accessLevel === AccessLevel.ADMIN} />}
     </div>
   );
 };

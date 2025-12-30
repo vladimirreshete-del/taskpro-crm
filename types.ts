@@ -1,7 +1,6 @@
 
 export enum AccessLevel {
   ADMIN = 'Админ',
-  MANAGER = 'Менеджер',
   EXECUTOR = 'Исполнитель'
 }
 
@@ -37,15 +36,17 @@ export interface Employee {
 
 export interface Task {
   id: number;
+  displayId: number; // Порядковый номер начиная с 1
   title: string;
   organizationName: string;
   solutionContext: string;
   description: string;
   status: TaskStatus;
-  priority: 1 | 2 | 3 | 4 | 5;
+  priority: 'Обычная' | 'Срочная' | 'Ключевая';
   deadline: string;
   creatorId: number;
   assigneeId: number;
+  assigneeName: string;
   tags: string[];
   weightHours: number;
   createdAt: string;
