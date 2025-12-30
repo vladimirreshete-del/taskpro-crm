@@ -5,7 +5,7 @@ services:
     name: crm-backend
     env: python
     buildCommand: "pip install -r requirements.txt && python manage.py migrate && python manage.py collectstatic --noinput"
-    startCommand: "gunicorn core.wsgi:application" # Убедитесь, что папка с wsgi.py называется 'core' или измените здесь
+    startCommand: "gunicorn core.wsgi:application"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -19,14 +19,13 @@ services:
         value: "*"
 
   # Фронтенд: React (Static Site)
-  # В Blueprints Render тип для статических сайтов - именно 'static'
   - type: static
     name: crm-frontend
     buildCommand: "npm install && npm run build"
     publishPath: "./dist"
     envVars:
       - key: VITE_API_URL
-        value: https://crm-backend.onrender.com # URL вашего бэкенда
+        value: https://crm-backend.onrender.com/api/v1
 
 databases:
   - name: crm-db
