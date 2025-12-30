@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { LayoutGrid, Users, BarChart3, Bell, Plus, Zap, CheckCircle2 } from 'lucide-react';
+import { LayoutGrid, Users, BarChart3, Plus, Zap, CheckCircle2, Shield, User as UserIcon, ArrowRight, Link as LinkIcon } from 'lucide-react';
 import TaskBoard from './components/TaskBoard';
 import EmployeeManager from './components/EmployeeManager';
 import Dashboard from './components/Dashboard';
@@ -18,19 +18,23 @@ const App: React.FC = () => {
   const [filterEmployeeId, setFilterEmployeeId] = useState<number | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   
+  // Onboarding states
+  const [view, setView] = useState<'onboarding' | 'main'>('onboarding');
+  const [onboardingStep, setOnboardingStep] = useState<'choice' | 'invite_input'>('choice');
+  const [inviteLinkInput, setInviteLinkInput] = useState('');
+  const [inviteError, setInviteError] = useState('');
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
 
   const tg = useMemo(() => (window as any).Telegram?.WebApp, []);
   const currentTelegramUser = useMemo(() => tg?.initDataUnsafe?.user, [tg]);
-  // В демо-режиме (без TG) создаем стабильный ID для текущего сеанса
-  const currentUserId = useMemo(() => currentTelegramUser?.id || 1000 + Math.floor(Math.random() * 9000), [currentTelegramUser]);
+  const currentUserId = useMemo(() => currentTelegramUser?.id || 9999, [currentTelegramUser]);
   
-  // Используем общие ключи, чтобы пользователи видели общую базу (для имитации бэкенда)
-  const storageKeyTasks = `matrix_shared_tasks_v5`;
-  const storageKeyEmps = `matrix_shared_emps_v5`;
-  const storageKeyCounter = `matrix_shared_counter_v5`;
+  const storageKeyTasks = `matrix_shared_tasks_v6`;
+  const storageKeyEmps = `matrix_shared_emps_v6`;
+  const storageKeyCounter = `matrix_shared_counter_v6`;
 
   const currentUserProfile = useMemo(() => 
     employees.find(e => e.telegramId === currentUserId || e.id === currentUserId), 
@@ -40,58 +44,24 @@ const App: React.FC = () => {
     const savedEmps = localStorage.getItem(storageKeyEmps);
     let emps: Employee[] = savedEmps ? JSON.parse(savedEmps) : [];
 
-    const params = new URLSearchParams(window.location.search);
-    const isInvite = params.get('invite') === 'executor';
-
-    // Проверяем, есть ли текущий пользователь в базе
     const existingProfile = emps.find(e => e.telegramId === currentUserId || e.id === currentUserId);
 
-    if (!existingProfile && currentTelegramUser) {
-      const newUser: Employee = {
-        id: currentUserId,
-        telegramId: currentUserId,
-        fullName: `${currentTelegramUser.first_name} ${currentTelegramUser.last_name || ''}`.trim(),
-        role: isInvite ? 'Исполнитель' : 'Администратор',
-        email: '',
-        phone: '',
-        hireDate: new Date().toISOString().split('T')[0],
-        isActive: true,
-        accessLevel: isInvite ? AccessLevel.EXECUTOR : AccessLevel.ADMIN,
-        skills: isInvite ? [] : ['Владелец'],
-        loadPercentage: 0
-      };
-      emps = [...emps, newUser];
-      localStorage.setItem(storageKeyEmps, JSON.stringify(emps));
-      if (isInvite) setShowWelcome(true);
-    }
-    
-    // Если база пуста и нет данных от Telegram (тестовый вход)
-    if (emps.length === 0) {
-      const demoAdmin: Employee = {
-        id: 1,
-        fullName: 'Администратор (Система)',
-        role: 'Админ',
-        email: '',
-        phone: '',
-        hireDate: '2024-01-01',
-        isActive: true,
-        accessLevel: AccessLevel.ADMIN,
-        skills: [],
-        loadPercentage: 0
-      };
-      emps = [demoAdmin];
+    if (existingProfile) {
+      setView('main');
+    } else {
+      // Check if arriving with a direct link
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('invite') === 'executor') {
+        setOnboardingStep('invite_input');
+        setInviteLinkInput(window.location.href);
+      }
+      setView('onboarding');
     }
 
     setEmployees(emps);
     const savedTasks = localStorage.getItem(storageKeyTasks);
     setTasks(savedTasks ? JSON.parse(savedTasks) : []);
     setLoading(false);
-
-    // Очистка URL после обработки приглашения
-    if (isInvite) {
-      const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-      window.history.pushState({ path: newUrl }, '', newUrl);
-    }
   };
 
   useEffect(() => {
@@ -108,6 +78,42 @@ const App: React.FC = () => {
       localStorage.setItem(storageKeyEmps, JSON.stringify(employees));
     }
   }, [tasks, employees, loading]);
+
+  const handleRegister = (role: AccessLevel) => {
+    const newUser: Employee = {
+      id: currentUserId,
+      telegramId: currentUserId,
+      fullName: currentTelegramUser ? `${currentTelegramUser.first_name} ${currentTelegramUser.last_name || ''}`.trim() : (role === AccessLevel.ADMIN ? 'Администратор' : 'Новый сотрудник'),
+      role: role === AccessLevel.ADMIN ? 'Руководитель' : 'Исполнитель',
+      email: '',
+      phone: '',
+      hireDate: new Date().toISOString().split('T')[0],
+      isActive: true,
+      accessLevel: role,
+      skills: role === AccessLevel.ADMIN ? ['Владелец'] : [],
+      loadPercentage: 0
+    };
+
+    const updatedEmps = [...employees, newUser];
+    setEmployees(updatedEmps);
+    localStorage.setItem(storageKeyEmps, JSON.stringify(updatedEmps));
+    setView('main');
+    if (role === AccessLevel.EXECUTOR) setShowWelcome(true);
+    tg?.HapticFeedback?.notificationOccurred('success');
+  };
+
+  const handleJoinByInvite = () => {
+    try {
+      const url = new URL(inviteLinkInput);
+      if (url.searchParams.get('invite') === 'executor') {
+        handleRegister(AccessLevel.EXECUTOR);
+      } else {
+        setInviteError('Некорректная ссылка. Убедитесь, что она содержит пригласительный код.');
+      }
+    } catch (e) {
+      setInviteError('Пожалуйста, введите валидную ссылку.');
+    }
+  };
 
   const handleTabChange = (tab: 'tasks' | 'employees' | 'dashboard') => {
     setActiveTab(tab);
@@ -148,10 +154,8 @@ const App: React.FC = () => {
   const visibleTasks = useMemo(() => {
     let filtered = tasks;
     if (currentUserProfile?.accessLevel === AccessLevel.EXECUTOR) {
-      // Исполнитель видит только свои
       filtered = tasks.filter(t => t.assigneeId === currentUserProfile.id || t.assigneeId === currentUserId);
     } else if (filterEmployeeId) {
-      // Админ смотрит задачи конкретного чела
       filtered = tasks.filter(t => t.assigneeId === filterEmployeeId);
     }
     return filtered;
@@ -190,6 +194,84 @@ const App: React.FC = () => {
     setIsEmployeeModalOpen(false);
     tg?.HapticFeedback?.notificationOccurred('success');
   };
+
+  if (view === 'onboarding') {
+    return (
+      <div className="flex flex-col h-screen bg-slate-50 px-8 justify-center items-center text-center animate-fade-up">
+        <div className="w-20 h-20 bg-indigo-600 rounded-[28px] flex items-center justify-center text-white shadow-2xl shadow-indigo-500/40 mb-8">
+          <Zap size={44} fill="white" />
+        </div>
+        
+        {onboardingStep === 'choice' ? (
+          <div className="space-y-8 w-full max-w-sm">
+            <div>
+              <h1 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Добро пожаловать</h1>
+              <p className="text-slate-400 font-bold text-sm">Выберите вашу роль в системе 1C Matrix</p>
+            </div>
+            
+            <div className="space-y-4">
+              <button 
+                onClick={() => handleRegister(AccessLevel.ADMIN)}
+                className="w-full bg-white p-6 rounded-[32px] border-2 border-transparent hover:border-indigo-500 transition-all flex items-center gap-5 group shadow-sm text-left active:scale-[0.98]"
+              >
+                <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                  <Shield size={28} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-800">Я Администратор</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Создать новую команду</p>
+                </div>
+                <ArrowRight size={20} className="ml-auto text-slate-200 group-hover:text-indigo-600 transition-all" />
+              </button>
+
+              <button 
+                onClick={() => setOnboardingStep('invite_input')}
+                className="w-full bg-white p-6 rounded-[32px] border-2 border-transparent hover:border-indigo-500 transition-all flex items-center gap-5 group shadow-sm text-left active:scale-[0.98]"
+              >
+                <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-500 group-hover:bg-amber-500 group-hover:text-white transition-all">
+                  <UserIcon size={28} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-800">Я Исполнитель</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Присоединиться по ссылке</p>
+                </div>
+                <ArrowRight size={20} className="ml-auto text-slate-200 group-hover:text-amber-500 transition-all" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-8 w-full max-w-sm">
+            <button onClick={() => setOnboardingStep('choice')} className="text-slate-400 font-bold text-xs hover:text-indigo-600 transition-colors uppercase tracking-widest">← Назад к выбору</button>
+            <div>
+              <h2 className="text-2xl font-black text-slate-900 mb-2">Пригласительная ссылка</h2>
+              <p className="text-slate-400 font-bold text-sm">Вставьте ссылку, которую вам отправил руководитель</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="relative">
+                <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300"><LinkIcon size={18} /></div>
+                <input 
+                  type="text" 
+                  value={inviteLinkInput}
+                  onChange={(e) => { setInviteLinkInput(e.target.value); setInviteError(''); }}
+                  placeholder="https://matrix.app/?invite=..."
+                  className="w-full bg-white border-2 border-transparent focus:border-indigo-500/30 px-12 py-5 rounded-[24px] outline-none font-bold text-sm shadow-sm transition-all"
+                />
+              </div>
+              {inviteError && <p className="text-rose-500 text-[10px] font-black uppercase tracking-wider">{inviteError}</p>}
+              <button 
+                onClick={handleJoinByInvite}
+                disabled={!inviteLinkInput}
+                className={`w-full py-5 rounded-[24px] font-black text-sm shadow-xl transition-all active:scale-95 ${inviteLinkInput ? 'bg-indigo-600 text-white shadow-indigo-500/30' : 'bg-slate-200 text-slate-400'}`}
+              >
+                Присоединиться
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-[#f8fafc]">
