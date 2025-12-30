@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { LayoutGrid, Users, BarChart3, Bell, Plus, Zap } from 'lucide-react';
+import { LayoutGrid, Users, BarChart3, Bell, Plus, Zap, CheckCircle2 } from 'lucide-react';
 import TaskBoard from './components/TaskBoard';
 import EmployeeManager from './components/EmployeeManager';
 import Dashboard from './components/Dashboard';
@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [filterEmployeeId, setFilterEmployeeId] = useState<number | null>(null);
+  const [showWelcome, setShowWelcome] = useState(false);
   
   const [tasks, setTasks] = useState<Task[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -23,98 +24,52 @@ const App: React.FC = () => {
 
   const tg = useMemo(() => (window as any).Telegram?.WebApp, []);
   const currentTelegramUser = useMemo(() => tg?.initDataUnsafe?.user, [tg]);
-  const currentUserId = useMemo(() => currentTelegramUser?.id || 12345, [currentTelegramUser]);
+  // В демо-режиме (без TG) создаем стабильный ID для текущего сеанса
+  const currentUserId = useMemo(() => currentTelegramUser?.id || 1000 + Math.floor(Math.random() * 9000), [currentTelegramUser]);
   
-  const storageKeyTasks = `matrix_tasks_v4_${currentUserId}`;
-  const storageKeyEmps = `matrix_emps_v4_${currentUserId}`;
-  const storageKeyCounter = `matrix_counter_v4_${currentUserId}`;
+  // Используем общие ключи, чтобы пользователи видели общую базу (для имитации бэкенда)
+  const storageKeyTasks = `matrix_shared_tasks_v5`;
+  const storageKeyEmps = `matrix_shared_emps_v5`;
+  const storageKeyCounter = `matrix_shared_counter_v5`;
 
   const currentUserProfile = useMemo(() => 
     employees.find(e => e.telegramId === currentUserId || e.id === currentUserId), 
   [employees, currentUserId]);
 
-  // Logic to register user when joining via invitation link
-  useEffect(() => {
-    if (loading) return;
-
-    const params = new URLSearchParams(window.location.search);
-    const isInvite = params.get('invite') === 'executor';
-
-    if (isInvite && currentTelegramUser) {
-      const alreadyExists = employees.find(e => e.telegramId === currentUserId);
-      
-      if (!alreadyExists) {
-        const newExecutor: Employee = {
-          id: currentUserId,
-          telegramId: currentUserId,
-          fullName: `${currentTelegramUser.first_name} ${currentTelegramUser.last_name || ''}`.trim(),
-          role: 'Исполнитель',
-          email: '',
-          phone: '',
-          hireDate: new Date().toISOString().split('T')[0],
-          isActive: true,
-          accessLevel: AccessLevel.EXECUTOR,
-          skills: [],
-          loadPercentage: 0
-        };
-        
-        const updatedEmps = [...employees, newExecutor];
-        setEmployees(updatedEmps);
-        localStorage.setItem(storageKeyEmps, JSON.stringify(updatedEmps));
-        
-        // Remove invite from URL to prevent infinite loop or re-adding
-        const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-        window.history.pushState({ path: newUrl }, '', newUrl);
-        
-        tg?.HapticFeedback?.notificationOccurred('success');
-        alert("Добро пожаловать в команду 1C Matrix!");
-      }
-    }
-  }, [loading, currentTelegramUser, employees, currentUserId, storageKeyEmps, tg]);
-
-  const visibleTasks = useMemo(() => {
-    let filtered = tasks;
-    if (currentUserProfile?.accessLevel === AccessLevel.EXECUTOR) {
-      filtered = tasks.filter(t => t.assigneeId === currentUserProfile.id || t.assigneeId === currentUserId);
-    } else if (filterEmployeeId) {
-      filtered = tasks.filter(t => t.assigneeId === filterEmployeeId);
-    }
-    return filtered;
-  }, [tasks, currentUserProfile, currentUserId, filterEmployeeId]);
-
   const fetchData = () => {
     const savedEmps = localStorage.getItem(storageKeyEmps);
     let emps: Employee[] = savedEmps ? JSON.parse(savedEmps) : [];
 
-    // First login logic: Admin creation if not joined via invite
-    if (currentTelegramUser && !emps.find(e => e.telegramId === currentUserId)) {
-      const params = new URLSearchParams(window.location.search);
-      const isInvite = params.get('invite') === 'executor';
+    const params = new URLSearchParams(window.location.search);
+    const isInvite = params.get('invite') === 'executor';
 
-      // If NOT an invite, the very first user is usually an Admin
-      if (!isInvite) {
-        const self: Employee = {
-          id: currentUserId,
-          telegramId: currentUserId,
-          fullName: `${currentTelegramUser.first_name} ${currentTelegramUser.last_name || ''}`.trim(),
-          role: 'Администратор',
-          email: '',
-          phone: '',
-          hireDate: new Date().toISOString().split('T')[0],
-          isActive: true,
-          accessLevel: AccessLevel.ADMIN,
-          skills: ['Владелец'],
-          loadPercentage: 0
-        };
-        emps = [self, ...emps];
-        localStorage.setItem(storageKeyEmps, JSON.stringify(emps));
-      }
+    // Проверяем, есть ли текущий пользователь в базе
+    const existingProfile = emps.find(e => e.telegramId === currentUserId || e.id === currentUserId);
+
+    if (!existingProfile && currentTelegramUser) {
+      const newUser: Employee = {
+        id: currentUserId,
+        telegramId: currentUserId,
+        fullName: `${currentTelegramUser.first_name} ${currentTelegramUser.last_name || ''}`.trim(),
+        role: isInvite ? 'Исполнитель' : 'Администратор',
+        email: '',
+        phone: '',
+        hireDate: new Date().toISOString().split('T')[0],
+        isActive: true,
+        accessLevel: isInvite ? AccessLevel.EXECUTOR : AccessLevel.ADMIN,
+        skills: isInvite ? [] : ['Владелец'],
+        loadPercentage: 0
+      };
+      emps = [...emps, newUser];
+      localStorage.setItem(storageKeyEmps, JSON.stringify(emps));
+      if (isInvite) setShowWelcome(true);
     }
     
+    // Если база пуста и нет данных от Telegram (тестовый вход)
     if (emps.length === 0) {
       const demoAdmin: Employee = {
         id: 1,
-        fullName: 'Администратор (Демо)',
+        fullName: 'Администратор (Система)',
         role: 'Админ',
         email: '',
         phone: '',
@@ -131,13 +86,18 @@ const App: React.FC = () => {
     const savedTasks = localStorage.getItem(storageKeyTasks);
     setTasks(savedTasks ? JSON.parse(savedTasks) : []);
     setLoading(false);
+
+    // Очистка URL после обработки приглашения
+    if (isInvite) {
+      const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+      window.history.pushState({ path: newUrl }, '', newUrl);
+    }
   };
 
   useEffect(() => {
     if (tg) {
       tg.ready();
       tg.expand();
-      tg.setHeaderColor?.('#ffffff');
     }
     fetchData();
   }, [tg, currentUserId]);
@@ -185,6 +145,18 @@ const App: React.FC = () => {
     tg?.HapticFeedback?.notificationOccurred('success');
   };
 
+  const visibleTasks = useMemo(() => {
+    let filtered = tasks;
+    if (currentUserProfile?.accessLevel === AccessLevel.EXECUTOR) {
+      // Исполнитель видит только свои
+      filtered = tasks.filter(t => t.assigneeId === currentUserProfile.id || t.assigneeId === currentUserId);
+    } else if (filterEmployeeId) {
+      // Админ смотрит задачи конкретного чела
+      filtered = tasks.filter(t => t.assigneeId === filterEmployeeId);
+    }
+    return filtered;
+  }, [tasks, currentUserProfile, currentUserId, filterEmployeeId]);
+
   const updateTask = (updated: Task) => {
     setTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
     if (selectedTask?.id === updated.id) setSelectedTask(updated);
@@ -221,6 +193,17 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-[#f8fafc]">
+      {showWelcome && (
+        <div className="fixed top-24 left-6 right-6 z-[200] bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl animate-fade-up flex items-center gap-3 border border-emerald-500">
+          <CheckCircle2 size={24} />
+          <div>
+            <p className="font-black text-sm">Вы в команде!</p>
+            <p className="text-[10px] font-bold opacity-90 text-white/80">Ваш статус: Исполнитель (доступ ограничен)</p>
+          </div>
+          <button onClick={() => setShowWelcome(false)} className="ml-auto opacity-70 hover:opacity-100"><Plus className="rotate-45" size={20} /></button>
+        </div>
+      )}
+
       <header className="sticky top-0 z-30 px-6 pt-10 pb-4 flex items-center justify-between bg-white border-b border-slate-100 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
@@ -229,7 +212,9 @@ const App: React.FC = () => {
           <div>
             <h1 className="text-xl font-extrabold tracking-tight leading-none text-slate-900">1C Matrix</h1>
             <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-1">
-              {currentUserProfile?.fullName || 'Гость'} • {currentUserProfile?.accessLevel || 'Исполнитель'}
+              {currentUserProfile?.fullName || 'Гость'} • <span className={currentUserProfile?.accessLevel === AccessLevel.ADMIN ? 'text-indigo-600' : 'text-amber-500'}>
+                {currentUserProfile?.accessLevel || 'Инициализация...'}
+              </span>
             </p>
           </div>
         </div>
@@ -277,15 +262,26 @@ const App: React.FC = () => {
           <button onClick={() => handleTabChange('employees')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] ${activeTab === 'employees' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}>
             <Users size={22} /><span className="text-[10px] font-bold">Команда</span>
           </button>
-          <button onClick={() => handleTabChange('dashboard')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}>
-            <BarChart3 size={22} /><span className="text-[10px] font-bold">Анализ</span>
-          </button>
+          {currentUserProfile?.accessLevel === AccessLevel.ADMIN && (
+            <button onClick={() => handleTabChange('dashboard')} className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-[24px] ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}>
+              <BarChart3 size={22} /><span className="text-[10px] font-bold">Анализ</span>
+            </button>
+          )}
         </nav>
       </div>
 
       {isTaskModalOpen && <TaskCreator employees={employees} onClose={() => setIsTaskModalOpen(false)} onSave={addTask} />}
       {isEmployeeModalOpen && <EmployeeEditor employee={editingEmployee} onClose={() => { setIsEmployeeModalOpen(false); setEditingEmployee(null); }} onSave={saveEmployee} />}
-      {selectedTask && <TaskDetails task={selectedTask} currentUser={currentUserProfile || ({} as any)} onClose={() => setSelectedTask(null)} onUpdate={updateTask} onDelete={deleteTask} isAdmin={currentUserProfile?.accessLevel === AccessLevel.ADMIN} />}
+      {selectedTask && (
+        <TaskDetails 
+          task={selectedTask} 
+          currentUser={currentUserProfile || ({} as any)} 
+          onClose={() => setSelectedTask(null)} 
+          onUpdate={updateTask} 
+          onDelete={deleteTask} 
+          isAdmin={currentUserProfile?.accessLevel === AccessLevel.ADMIN} 
+        />
+      )}
     </div>
   );
 };
