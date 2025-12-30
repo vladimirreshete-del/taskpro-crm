@@ -9,8 +9,20 @@ import TaskDetails from './components/TaskDetails';
 import { Task, TaskStatus, Employee, AccessLevel } from './types';
 
 // Конфигурация API
-// Безопасное получение переменной окружения
-const API_URL = (import.meta.env && import.meta.env.VITE_API_URL) || 'http://localhost:8000/api/v1';
+const getApiUrl = () => {
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_URL;
+    }
+  } catch (e) {
+    console.warn('Environment variable read error');
+  }
+  return 'http://localhost:8000/api/v1';
+};
+
+const API_URL = getApiUrl();
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'tasks' | 'employees' | 'dashboard'>('tasks');
@@ -47,10 +59,9 @@ const App: React.FC = () => {
 
     setIsSyncing(true);
     try {
-      // Добавляем слеш в конце URL, если его нет в API_URL, но обычно API_URL без слеша
-      const response = await fetch(`${API_URL}/sync/?team_id=${activeTeamId}`, {
+      const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      const response = await fetch(`${baseUrl}/sync/?team_id=${activeTeamId}`, {
         method: 'GET',
-        mode: 'cors',
         headers: {
           'Accept': 'application/json',
           'Cache-Control': 'no-cache'
@@ -65,7 +76,7 @@ const App: React.FC = () => {
       setApiError(null);
     } catch (error) {
       console.error("Fetch error:", error);
-      setApiError("Ошибка соединения. Проверьте статус сервера CRM.");
+      setApiError("Ошибка соединения с сервером.");
     } finally {
       setIsSyncing(false);
       setLoading(false);
@@ -75,13 +86,14 @@ const App: React.FC = () => {
   const pushData = useCallback(async (updatedTasks: Task[], updatedEmps: Employee[]) => {
     if (!teamId) return;
     
+    // Оптимистичное обновление UI
     setTasks(updatedTasks);
     setEmployees(updatedEmps);
 
     try {
-      const response = await fetch(`${API_URL}/sync/`, {
+      const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      const response = await fetch(`${baseUrl}/sync/`, {
         method: 'POST',
-        mode: 'cors',
         headers: { 
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -97,7 +109,7 @@ const App: React.FC = () => {
       setApiError(null);
     } catch (error) {
       console.error("Push error:", error);
-      setApiError("Ошибка сохранения. Данные хранятся локально.");
+      setApiError("Ошибка сохранения. Проверьте интернет.");
     }
   }, [teamId]);
 
@@ -119,7 +131,7 @@ const App: React.FC = () => {
 
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible' && isRegistered) syncData();
-    }, 15000);
+    }, 30000); // Реже, чтобы не спамить
     return () => clearInterval(interval);
   }, [syncData, isRegistered]);
 
@@ -161,7 +173,8 @@ const App: React.FC = () => {
       localStorage.setItem('matrix_current_team_id', extractedTeamId);
       localStorage.setItem('matrix_is_registered', 'true');
 
-      const response = await fetch(`${API_URL}/sync/?team_id=${extractedTeamId}`);
+      const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      const response = await fetch(`${baseUrl}/sync/?team_id=${extractedTeamId}`);
       if (!response.ok) throw new Error('Unreachable');
       
       const data = await response.json();
@@ -181,6 +194,7 @@ const App: React.FC = () => {
       };
 
       const updatedEmps = [...(data.employees || [])];
+      // Добавляем только если такого ID еще нет
       if (!updatedEmps.find(e => e.id === currentUserId)) {
         updatedEmps.push(executor);
       }
@@ -230,7 +244,6 @@ const App: React.FC = () => {
     return tasks;
   }, [tasks, filterEmployeeId]);
 
-  // Определяем права доступа: если профиль есть и роль Админ, ИЛИ если это единственный пользователь (создатель/демо)
   const isAdmin = currentUserProfile?.accessLevel === AccessLevel.ADMIN || employees.length <= 1;
   const canCreateTask = !!currentUserProfile;
 
